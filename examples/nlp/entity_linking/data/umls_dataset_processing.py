@@ -132,6 +132,7 @@ def process_umls_index_dataset(data_path, data_savename, id2string_savename, hea
     """
 
     print("Loading index data file...")
+    print(f"data_path: {data_path}")
     df = pd.read_table(data_path, names=headers, index_col=False, delimiter='|')
     id2string = {}
 
@@ -152,7 +153,7 @@ def process_umls_index_dataset(data_path, data_savename, id2string_savename, hea
                 outfile.write(f'{cui}\t{sent}\n')
 
                 # Matching each cui to one canonical string represention
-                if cui not in id2string and ":" not in sent:
+                if cui not in id2string:  # and ":" not in sent:
                     id2string[cui] = sent
 
     outfile.close()

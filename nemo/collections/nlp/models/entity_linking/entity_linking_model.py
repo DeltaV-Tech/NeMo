@@ -22,6 +22,7 @@ from transformers import AutoTokenizer
 from nemo.collections.common.losses import MultiSimilarityLoss
 from nemo.collections.nlp.data import EntityLinkingDataset
 from nemo.collections.nlp.models.nlp_model import NLPModel
+from nemo.collections.nlp.modules.common.lm_utils import get_lm_model
 from nemo.core.classes.common import typecheck
 from nemo.core.classes.exportable import Exportable
 from nemo.core.neural_types import ChannelType, LogitsType, MaskType, NeuralType
@@ -38,6 +39,10 @@ class EntityLinkingModel(NLPModel, Exportable):
     """
 
     @property
+    def input_types(self) -> Optional[Dict[str, NeuralType]]:
+        return self.model.input_types
+
+    @property
     def output_types(self) -> Optional[Dict[str, NeuralType]]:
         return {"logits": NeuralType(('B', 'D'), LogitsType())}
 
@@ -48,6 +53,13 @@ class EntityLinkingModel(NLPModel, Exportable):
         self._setup_tokenizer(cfg.tokenizer)
 
         super().__init__(cfg=cfg, trainer=trainer)
+
+        self.model = get_lm_model(
+            pretrained_model_name=cfg.language_model.pretrained_model_name,
+            config_file=cfg.language_model.config_file,
+            config_dict=cfg.language_model.config,
+            checkpoint_file=cfg.language_model.lm_checkpoint,
+        )
 
         # Token to use for the self-alignment loss, typically the first token, [CLS]
         self._idx_conditioned_on = 0
@@ -62,11 +74,7 @@ class EntityLinkingModel(NLPModel, Exportable):
 
     @typecheck()
     def forward(self, input_ids, token_type_ids, attention_mask):
-        hidden_states = self.bert_model(
-            input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask
-        )
-        if isinstance(hidden_states, tuple):
-            hidden_states = hidden_states[0]
+        hidden_states = self.model(input_ids=input_ids, token_type_ids=token_type_ids, attention_mask=attention_mask)
 
         # normalize to unit sphere
         logits = torch.nn.functional.normalize(hidden_states[:, self._idx_conditioned_on], p=2, dim=1)
@@ -84,15 +92,53 @@ class EntityLinkingModel(NLPModel, Exportable):
         # No hard examples found in batch,
         # shouldn't use this batch to update model weights
         if train_loss == 0:
-            train_loss = None
-            lr = None
+        #    train_loss = None
+        #    lr = None
+            logging.info("train_loss == 0 in EntityLinkingModel.training_step")
+        #    val_loss = None
+            logging.info(train_loss)
+            logging.info(train_loss.size())
+            logging.info(train_loss.ndim)
+            logging.info(train_loss.numel())
+            logging.info(train_loss.stride())
+            logging.info(train_loss.element_size())
+            logging.info(train_loss.type())
 
-        else:
-            lr = self._optimizer.param_groups[0]["lr"]
-            self.log("train_loss", train_loss)
-            self.log("lr", lr, prog_bar=True)
+
+        #else:
+        lr = self._optimizer.param_groups[0]["lr"]
+        self.log("train_loss", train_loss)
+        self.log("lr", lr, prog_bar=True)
 
         return {"loss": train_loss, "lr": lr}
+
+#    def training_step_end(self, training_step_outputs):
+#        logging.info("training_step_end called")
+#        logging.info(training_step_outputs)
+#        if torch.distributed.is_initialized():
+#            tensor_list = [torch.zeros([], dtype=training_step_outputs["loss"].dtype,
+#                device=training_step_outputs["loss"].device) for _ in range(3)]
+#            logging.info(tensor_list)
+#            torch.distributed.all_gather(tensor_list, training_step_outputs["loss"])
+#            logging.info(tensor_list)
+#            gb_count = 0
+#            for i in range(len(tensor_list)):
+#                if tensor_list[i] == 0:
+#                    logging.info(f"got zero loss for rank {i} - returning")
+#                    return 
+#            #logging.info("reducing lr")
+#            #all_lr = training_step_outputs["lr"]
+#            #torch.distributed.all_reduce(all_lr, op=torch.distributed.ReduceOp.AVG)
+#            #logging.info(all_lr)
+#
+#            out = {"loss": avg_loss, "lr": training_step_outputs["lr"]}
+#            logging.info("distributed out")
+#            logging.info(out)
+#        else:
+#            out = training_step_outputs
+#
+#        #logging.info(training_step_outputs)
+#        return out
 
     def validation_step(self, batch, batch_idx):
         """
@@ -107,10 +153,21 @@ class EntityLinkingModel(NLPModel, Exportable):
         # No hard examples found in batch,
         # val loss not used to update model weights
         if val_loss == 0:
-            val_loss = None
-        else:
-            self.log("val_loss", val_loss)
-            logging.info(f"val loss: {val_loss}")
+            logging.info("val_loss == 0 in EntityLinkingModel.validation_step")
+        #    val_loss = None
+            logging.info(val_loss)
+            logging.info(val_loss.size())
+            logging.info(val_loss.ndim)
+            logging.info(val_loss.numel())
+            logging.info(val_loss.stride())
+            logging.info(val_loss.element_size())
+            logging.info(val_loss.type())
+
+        #else:
+        
+
+        self.log("val_loss", val_loss)
+        logging.info(f"val loss: {val_loss}")
 
         return {"val_loss": val_loss}
 

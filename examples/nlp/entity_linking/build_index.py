@@ -43,7 +43,7 @@ def build_index(cfg: DictConfig, model: object):
         cfg (DictConfig): Config file specifying index parameters
         model (object): Encoder model
     """
-
+    
     # Get index dataset embeddings
     # PCA model exists and index embeddings have already been PCAed, no need to re-extract/PCA them
     if cfg.apply_pca and os.path.isfile(cfg.pca.pca_save_name) and os.path.isfile(cfg.pca_embeddings_save_name):
@@ -68,10 +68,15 @@ def build_index(cfg: DictConfig, model: object):
         if not os.path.isfile(cfg.pca.pca_save_name):
             logging.info("Fitting PCA model for embedding dimensionality reduction")
             pca_train_set = random.sample(list(embeddings), k=int(len(embeddings) * cfg.pca.sample_fraction))
+            logging.info("Loaded Training Set...")
             pca = PCA(n_components=cfg.pca.output_dim)
+            logging.info("Created PCA object. Fitting PCA to train set...")
             pca.fit(pca_train_set)
+            logging.info("Fitted PCA model. Dumping model to file.")
             pkl.dump(pca, open(cfg.pca.pca_save_name, "wb"))
+            logging.info("Dumped model. Reducing embedding dims.")
             embeddings = reduce_embedding_dim(pca, embeddings, cfg)
+            logging.info("Reduced dims!")
 
         # PCA model already trained, just need to reduce dimensionality of all embeddings
         elif not os.path.isfile(cfg.pca_embeddings_save_name):
@@ -99,9 +104,12 @@ def reduce_embedding_dim(pca, embeddings, cfg):
 
     logging.info("Applying PCA transformation to entire index dataset")
     embeddings = np.array(pca.transform(embeddings), dtype=np.float32)
+
+    logging.info("Built embeddings array")
     emb_file = h5py.File(cfg.pca_embeddings_save_name, "w")
     emb_file.create_dataset(cfg.index_ds.name, data=embeddings)
     emb_file.close()
+    logging.info("Wrote h5py file")
 
     return embeddings
 
@@ -123,6 +131,14 @@ def get_index_embeddings(cfg: DictConfig, dataloader: object, model: object):
 
             embeddings.extend(batch_embeddings.detach().cpu().numpy())
             concept_ids.extend(batch_concept_ids.numpy())
+            """
+            logging.info(batch_embeddings)
+            logging.info(batch_embeddings.size())
+            logging.info(batch_concept_ids)
+            logging.info(batch_concept_ids.size())
+            logging.info(batch_embeddings[:5])
+            logging.info(batch_concept_ids[:5])
+            """
 
     emb_file = h5py.File(cfg.embedding_save_name, "w")
     emb_file.create_dataset(cfg.index_ds.name, data=embeddings)
@@ -156,6 +172,14 @@ def load_model(cfg: DictConfig, restore: bool):
 
     return model
 
+"""
+def map_idx_to_ids(config: DictConfig):
+    df = pd.read_table(config.index_ds.data_file, dtype={0: int, 1: str})
+
+    idx2id = pkl.load(open(cfg.index.idx_to_id, "rb"))
+    idx2id = pkl.load(open(cfg.index.idx_to_id, "rb"))
+"""
+
 
 def main(cfg: DictConfig, restore: bool):
     """
@@ -170,9 +194,8 @@ def main(cfg: DictConfig, restore: bool):
 
     logging.info("Loading entity linking encoder model")
     model = load_model(cfg.model, restore)
-
     if not os.path.isfile(cfg.index.index_save_name) or (
-        cfg.apply_pca and not os.path.isfile(cfg.index.pca.pca_save_name)
+        cfg.index.apply_pca and not os.path.isfile(cfg.index.pca.pca_save_name)
     ):
         logging.info("Building index")
         build_index(cfg.index, model)

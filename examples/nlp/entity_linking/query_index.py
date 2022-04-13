@@ -55,9 +55,8 @@ def get_query_embedding(query, model):
 
 
 def query_index(
-    query: str, cfg: DictConfig, model: object, index: object, pca: object, idx2id: dict, id2string: dict,
+    query: str, config: DictConfig, model: object, index: object, pca: object, idx2id: dict, id2string: dict,
 ) -> Dict:
-
     """
     Query the nearest neighbor index of entities to find the 
     concepts in the index dataset that are most similar to the 
@@ -65,7 +64,7 @@ def query_index(
 
     Args:
         query (str): entity to look up in the index
-        cfg (DictConfig): config object to specifiy query parameters
+        config (DictConfig): config object to specify query parameters
         model (EntityLinkingModel): entity linking encoder model
         index (object): faiss index
         pca (object): sklearn pca transformation to be applied to queries 
@@ -82,21 +81,22 @@ def query_index(
     """
     query_emb = get_query_embedding(query, model).detach().cpu().numpy()
 
-    if cfg.apply_pca:
+    if config.apply_pca:
         query_emb = pca.transform(query_emb)
 
-    dist, neighbors = index.search(query_emb.astype(np.float32), cfg.query_num_factor * cfg.top_n)
+    dist, neighbors = index.search(query_emb.astype(np.float32), config.query_num_factor * config.top_n)
     dist, neighbors = dist[0], neighbors[0]
     unique_ids = OrderedDict()
     neighbor_idx = 0
 
     # Many of nearest neighbors could map to the same concept id, their idx is their unique identifier
-    while len(unique_ids) < cfg.top_n and neighbor_idx < len(neighbors):
+    while len(unique_ids) < config.top_n and neighbor_idx < len(neighbors):
         concept_id_idx = neighbors[neighbor_idx]
         concept_id = idx2id[concept_id_idx]
 
         # Only want one instance of each unique concept
         if concept_id not in unique_ids:
+            logging.info(f"Finding concept_id: {concept_id}")
             concept = id2string[concept_id]
             unique_ids[concept_id] = (concept, 1 - dist[neighbor_idx])
 
@@ -120,7 +120,9 @@ def main(cfg: DictConfig, restore: bool):
     """
 
     if not os.path.isfile(cfg.index.index_save_name) or (
-        cfg.apply_pca and not os.path.isfile(cfg.index.pca.pca_save_name) or not os.path.isfile(cfg.index.idx_to_id)
+        cfg.index.apply_pca
+        and not os.path.isfile(cfg.index.pca.pca_save_name)
+        or not os.path.isfile(cfg.index.concept_id_save_name)
     ):
         logging.warning("Either no index and/or no mapping from entity idx to ids exists. Please run `build_index.py`")
         return
@@ -130,15 +132,22 @@ def main(cfg: DictConfig, restore: bool):
 
     logging.info("Loading index and associated files")
     index = faiss.read_index(cfg.index.index_save_name)
-    idx2id = pkl.load(open(cfg.index.idx_to_id, "rb"))
+    idx2id = pkl.load(open(cfg.index.concept_id_save_name, "rb"))
     id2string = pkl.load(open(cfg.index.id_to_string, "rb"))  # Should be created during dataset prep
+
+    logging.info(f"Loaded {cfg.index.concept_id_save_name} index to CID map file with attributes:")
+    logging.info(type(idx2id))
+    logging.info(np.shape(idx2id))
+    logging.info(idx2id[:10])
 
     if cfg.index.apply_pca:
         pca = pkl.load(open(cfg.index.pca.pca_save_name, "rb"))
+    else:
+        pca = None
 
     while True:
         query = input("enter index query: ")
-        output = query_index(query, cfg.top_n, cfg.index, model, index, pca, idx2id, id2string)
+        output = query_index(query, cfg.index, model, index, pca, idx2id, id2string)
 
         if query == "exit":
             break

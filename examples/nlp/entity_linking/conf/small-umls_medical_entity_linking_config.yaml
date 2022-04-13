@@ -1,17 +1,18 @@
 project_dir: ???
 name: SelfAlignmentPretrainingForMedicalEntityLinking
 trainer:
-  gpus: 3
+  devices: 1
   num_nodes: 1
-  max_epochs: 3
+  max_epochs: 2
   max_steps: null
   accumulate_grad_batches: 1
   precision: 16
-  accelerator: ddp
+  accelerator: gpu
+  strategy: ddp
   gradient_clip_val: 0.0
   log_every_n_steps: 1
-  val_check_interval: 500
-  checkpoint_callback: false
+  val_check_interval: 1000
+  enable_checkpointing: False
   logger: false
 model:
   nemo_path: ${project_dir}/sap_bert_umls.nemo
@@ -19,8 +20,6 @@ model:
   max_seq_length: 128
   language_model:
     pretrained_model_name: bert-base-uncased
-    #    microsoft/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext 
-# bert-base-uncased
     config_file: null
     config: null
     lm_checkpoint: null
@@ -34,7 +33,7 @@ model:
     max_seq_length: ${model.max_seq_length}
     batch_size: 128
     shuffle: true
-    num_workers: 16
+    num_workers: 2
     pin_memory: false
     drop_last: false
   validation_ds:
@@ -42,12 +41,12 @@ model:
     max_seq_length: ${model.max_seq_length}
     batch_size: 128
     shuffle: false
-    num_workers: 16
+    num_workers: 2
     pin_memory: false
     drop_last: false
   optim:
     name: adam
-    lr: 9.0e-05
+    lr: 3.0e-05
     weight_decay: 0.0
     sched:
       name: CosineAnnealing
@@ -58,7 +57,7 @@ model:
 index:
   dims: 256
   nlist: 300
-  top_n: 10
+  top_n: 5
   query_num_factor: 20
   index_save_name: ${project_dir}/medical_entity_linking_index
   index_batch_size: 1000
@@ -88,12 +87,6 @@ exp_manager:
   name: sap_bert_umls
   create_tensorboard_logger: true
   create_checkpoint_callback: true
-  resume_if_exists: true
-  resume_ignore_no_checkpoint: true
-  version: v1
-  checkpoint_callback_params:
-    always_save_nemo: true
-    save_best_model: true
 hydra:
   run:
     dir: .

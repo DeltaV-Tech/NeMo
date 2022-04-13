@@ -55,6 +55,7 @@ class MultiSimilarityLoss(Loss):
     def forward(self, logits, labels):
         cos_sim = torch.matmul(logits, torch.t(logits))
         losses = []
+        valid_count = 0
 
         for i in range(logits.size(0)):
             # mine hard pairs relative to anchor i
@@ -62,7 +63,14 @@ class MultiSimilarityLoss(Loss):
             positive_sims = positive_sims[positive_sims.lt(1 - self._epsilon)]  # omit identical pairs
             negative_sims = cos_sim[i][labels.ne(labels[i])]
 
-            if len(negative_sims) == 0 or len(positive_sims) == 0:
+            len_neg = len(negative_sims)
+            len_pos = len(positive_sims)
+
+            if len_neg == 0 or len_pos == 0:
+                # logging.info(f"pass {i}: got neg_sims len:{len_neg} and pos_sims len:{len_pos}.
+                # Appending zero tensor.")
+                zt = torch.sum(logits[i]).zero_()
+                losses.append(zt)
                 continue
 
             # negatives that are more similar than the least-similar positive
@@ -71,7 +79,14 @@ class MultiSimilarityLoss(Loss):
             # positives that are less similar than the most-similar negative
             hard_positives = positive_sims[positive_sims.lt(max(negative_sims) + self._margin)]
 
-            if len(hard_negatives) == 0 or len(hard_positives) == 0:
+            len_hard_neg = len(hard_negatives)
+            len_hard_pos = len(hard_positives)
+
+            if len_hard_neg == 0 or len_hard_pos == 0:
+                # logging.info(f"pass {i}: got len_hard_neg:{len_hard_neg} and len_hard_pos:{len_hard_pos}.
+                # Appending zero tensor.")
+                zt = torch.sum(logits[i]).zero_()
+                losses.append(zt)
                 continue
 
             pos_term = (
@@ -84,12 +99,32 @@ class MultiSimilarityLoss(Loss):
                 / self._scale_neg
                 * torch.log(1 + torch.sum(torch.exp(self._scale_neg * (hard_negatives - self._offset))))
             )
-            losses.append(pos_term + neg_term)
 
-        if len(losses) == 0:
-            loss = torch.zeros([], requires_grad=True).cuda()
-            logging.info(f'Encountered zero loss in multisimloss, loss = {loss}. No hard examples found in the batch')
+            losses.append(pos_term + neg_term)
+            valid_count += 1
+
+        logits_count = logits.size(0)
+        # logging.info(f"Got {valid_count} / {logits_count} valid entries")
+
+        if valid_count == 0:
+            logging.info(f'Encountered zero loss in multisimloss. No hard examples found in the batch: {valid_count}/{logits_count}')
+            loss = torch.sum(torch.stack(losses))
         else:
-            loss = torch.sum(torch.stack(losses)) / logits.size(0)
+            loss = torch.sum(torch.stack(losses)) / valid_count
+
+        # loss = torch.sum(torch.stack(losses)) / logits.size(0)
+        # loss = torch.mean(torch.stack(losses))
+
+        # if len(losses) == 0:
+        if valid_count == 0:
+            logging.info('returning loss: ')
+            logging.info(loss)
+            logging.info(loss.size())
+            # logging.info(loss.ndim)
+            # logging.info(loss.numel())
+            # logging.info(loss.stride())
+            # logging.info(loss.element_size())
+            logging.info(loss.type())
 
         return loss
+
